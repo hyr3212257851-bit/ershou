@@ -218,6 +218,45 @@
   .modal h3 { margin-bottom: 12px; }
   .modal textarea { width: 100%; min-height: 80px; }
 
+  /* ============ 聊天窗口 ============ */
+  .chat-win {
+    position: fixed; bottom: 0; right: 20px; width: 420px; height: 560px; max-height: calc(100vh - 20px);
+    background: var(--card); border-radius: 12px 12px 0 0; box-shadow: 0 -4px 30px rgba(0,0,0,.25);
+    display: flex; flex-direction: column; z-index: 180; border: 1px solid var(--border);
+    resize: both; overflow: hidden; min-width: 300px; min-height: 360px;
+  }
+  .chat-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--border); background: var(--bg); border-radius: 12px 12px 0 0; cursor: default; user-select: none; }
+  .chat-head .av { width: 34px; height: 34px; border-radius: 50%; background: linear-gradient(135deg,var(--primary),var(--accent)); color: #fff; display: grid; place-items: center; font-size: 14px; font-weight: 600; flex-shrink: 0; }
+  .chat-head .nm { font-weight: 600; font-size: 15px; }
+  .chat-head .tip { font-size: 12px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
+  .chat-close { margin-left: auto; border: none; background: none; font-size: 22px; color: var(--text-3); padding: 2px 6px; line-height: 1; }
+  .chat-body { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; min-height: 200px; }
+  .msg-row { display: flex; gap: 8px; }
+  .msg-row.me { flex-direction: row-reverse; }
+  .msg-row .mav { width: 30px; height: 30px; border-radius: 50%; background: var(--primary-light); color: var(--primary-dark); display: grid; place-items: center; font-size: 13px; flex-shrink: 0; font-weight: 600; }
+  .msg-row.me .mav { background: var(--primary); color: #fff; }
+  .msg-bub { max-width: 75%; padding: 9px 12px; border-radius: 10px; background: var(--bg); font-size: 14px; word-break: break-word; }
+  .msg-row.me .msg-bub { background: var(--primary); color: #fff; border-bottom-right-radius: 4px; }
+  .msg-row:not(.me) .msg-bub { border-bottom-left-radius: 4px; }
+  .msg-bub .mt { font-size: 10px; opacity: .7; margin-top: 3px; }
+  .msg-bub .read-tag { font-size: 10px; opacity: .85; margin-top: 1px; text-align: left; } /* 气泡左下角“已读” */
+  /* Tab / 会话行未读红点 */
+  .tab { position: relative; }
+  .tab-dot { position: absolute; top: 6px; right: 6px; min-width: 16px; height: 16px; padding: 0 4px;
+    background: #ef4444; color: #fff; border-radius: 8px; font-size: 10px; line-height: 16px; text-align: center;
+    font-weight: 600; border: 2px solid var(--card); box-sizing: content-box; }
+  .conv-unread { background: #ef4444; color: #fff; border-radius: 10px; min-width: 20px; height: 20px;
+    padding: 0 6px; display: inline-grid; place-items: center; font-size: 12px; font-weight: 600; }
+  .chat-input { display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--border); }
+  .chat-input input { flex: 1; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; outline: none; font-size: 14px; }
+  .chat-input input:focus { border-color: var(--primary); }
+  .chat-input button { flex-shrink: 0; padding: 8px 16px; }
+  .chat-empty { text-align: center; color: var(--text-3); font-size: 13px; padding: 30px 0; }
+  @media (max-width: 760px) {
+    .chat-win { left: 0; right: 0; width: 100%; height: 70vh; bottom: 56px; border-radius: 12px 12px 0 0; resize: none; }
+    .chat-head .tip { max-width: 150px; }
+  }
+
   /* ============ 响应式 ============ */
   @media (max-width: 760px) {
     .topbar-inner { gap: 8px; }
@@ -257,6 +296,7 @@ const KEY = {
   posts: 'cm_posts',
   favs: 'cm_favs',      // { userId: [postId,...] }
   hist: 'cm_hist',      // { userId: [{postId,at}] }
+  msgs: 'cm_msgs',      // 聊天（全局共享，本机演示）：{ "u1_u2_postId": [ {from:用户id, text, at} ] }
   session: 'cm_session'
 };
 const DB = {
@@ -278,7 +318,7 @@ const relTime = ts => {
   return fmtDate(ts);
 };
 
-const CATEGORIES = ['书籍资料', '数码产品', '生活用品', '衣物鞋帽', '运动器材'];
+const CATEGORIES = ['书籍资料', '数码产品', '生活用品', '衣物鞋帽', '运动器材', '其他'];
 const STATUS = { pending: '待审核', online: '已上线', rejected: '已驳回', offline: '已下架', removed: '已删除' };
 
 /* ---------- 种子数据 ---------- */
@@ -314,6 +354,18 @@ function seed() {
   DB.set(KEY.posts, posts);
   DB.set(KEY.favs, {});
   DB.set(KEY.hist, {});
+
+  /* 模拟聊天数据：小明同学(u_001) 咨询 学霸小李(u_002) 的高等数学书 */
+  const gaoshuPost = posts.find(p => p.title.includes('高等数学'));
+  if (gaoshuPost) {
+    DB.set(KEY.msgs, {
+      [convKey('u_001', 'u_002', gaoshuPost.id)]: [
+        { from: 'u_001', text: '请问这本书还有吗？', at: now() - 3600000*2, read: true },
+        { from: 'u_002', text: '有的，可以面交', at: now() - 3600000, read: true },
+        { from: 'u_001', text: '好的，明天下午图书馆可以吗', at: now() - 1800000, read: false }
+      ]
+    });
+  }
 }
 
 /* ---------- 数据升级：把旧种子数据的 SVG 占位图替换为本地实拍图 ----------
@@ -399,6 +451,57 @@ function recordHistory(uid, pid) {
 }
 function getHistory(uid) { return DB.get(KEY.hist, {})[uid] || []; }
 
+/* ---------- 聊天（全局共享，本机演示） ----------
+ * 会话按「买家id + 卖家id + 商品id」唯一标识，消息带发送者id。
+ * 说明：纯前端演示，数据存本机 localStorage。买家发消息后，
+ * 卖家登录（同一浏览器）即可在「我的消息」里看到并回复。 */
+/* 会话键：用「|」分隔，避免用户id/帖子id中的下划线干扰解析 */
+function convKey(a, b, pid) { const [x,y] = a < b ? [a,b] : [b,a]; return x + '|' + y + '|' + pid; }
+function getConv(a, b, pid) { return DB.get(KEY.msgs, {})[convKey(a, b, pid)] || []; }
+function pushMsg(fromId, toId, pid, text) {
+  const all = DB.get(KEY.msgs, {});
+  const k = convKey(fromId, toId, pid);
+  if (!all[k]) all[k] = [];
+  all[k].push({ from: fromId, text, at: now(), read: false }); // read：接收方是否已读
+  DB.set(KEY.msgs, all);
+}
+/* 标记会话中「对方发给我」的消息为已读（进入聊天窗口时调用，持久化） */
+function markConvRead(uid, otherId, pid) {
+  const all = DB.get(KEY.msgs, {});
+  const k = convKey(uid, otherId, pid);
+  if (!all[k]) return;
+  let changed = false;
+  all[k].forEach(m => { if (m.from !== uid && !m.read) { m.read = true; changed = true; } });
+  if (changed) DB.set(KEY.msgs, all);
+}
+/* 当前用户参与的所有会话（我是买家或卖家），用于“我的消息”列表 */
+function getConvsFor(uid) {
+  const all = DB.get(KEY.msgs, {});
+  const list = [];
+  for (const k in all) {
+    const parts = k.split('|');
+    if (parts.length !== 3) continue; // 跳过旧格式脏数据
+    const [a, b, pid] = parts;
+    if (a !== uid && b !== uid) continue;
+    const otherId = a === uid ? b : a;
+    const post = getPost(pid);
+    const other = getUser(otherId);
+    const msgs = all[k];
+    const last = msgs[msgs.length - 1];
+    const unread = msgs.filter(m => m.from !== uid && !m.read).length; // 对方发来我未读
+    list.push({
+      key: k, otherId, otherName: other ? other.name : '用户', postId: pid,
+      postTitle: post ? post.title : '(商品已删除)',
+      lastText: last ? last.text : '', lastAt: last ? last.at : 0, unread, msgs
+    });
+  }
+  return list.sort((x, y) => y.lastAt - x.lastAt);
+}
+/* 当前用户所有会话的未读消息总数（用于红点） */
+function getUnreadTotal(uid) {
+  return getConvsFor(uid).reduce((n, c) => n + c.unread, 0);
+}
+
 /* ---------- 图片压缩(上传) ---------- */
 function resizeImage(file, maxW, cb) {
   const reader = new FileReader();
@@ -458,6 +561,7 @@ function nav(path) { location.hash = path; }
 /* ---------- 顶层渲染 ---------- */
 const app = document.getElementById('app');
 function render() {
+  closeChat(true); // 切换页面时关闭聊天浮窗
   const s = currentUser();
   const p = route.path;
   // 路由守卫
@@ -511,33 +615,39 @@ function escapeAttr(s){ return (s||'').replace(/"/g,'&quot;'); }
 /* =====================================================
  * 视图：登录
  * ===================================================== */
-let loginMode = 'login'; // 学生入口：login | register
+let loginMode = 'login'; // 登录页：login 学生登录 | register 学生注册 | admin 管理员
 function viewLogin() {
   const isLogin = loginMode === 'login';
+  const isReg = loginMode === 'register';
+  const isAdmin = loginMode === 'admin';
   app.innerHTML = `
     <div class="topbar"><div class="topbar-inner">
       <a class="logo" href="#/" style="text-decoration:none"><span class="dot">校</span><span class="full">校园二手交易平台</span></a>
-      <div class="top-actions"><button class="btn btn-sm" onclick="nav('/admin/login')">管理员入口</button></div>
     </div></div>
     <div class="container">
       <div class="form-card">
         <div class="tabs" style="margin-bottom:20px">
           <button class="tab ${isLogin?'active':''}" onclick="loginMode='login';viewLogin()">登录</button>
-          <button class="tab ${!isLogin?'active':''}" onclick="loginMode='register';viewLogin()">注册</button>
+          <button class="tab ${isReg?'active':''}" onclick="loginMode='register';viewLogin()">注册</button>
+          <button class="tab ${isAdmin?'active':''}" onclick="loginMode='admin';viewLogin()">管理员</button>
         </div>
-        <h2>${isLogin ? '学生登录' : '学生注册'}</h2>
+        <h2>${isLogin ? '学生登录' : isReg ? '学生注册' : '管理员登录'}</h2>
         ${isLogin ? `
         <div class="field"><label>手机号 / 账号</label><input id="lg-phone" placeholder="演示账号：13800138000"></div>
         <div class="field"><label>密码</label><input id="lg-pwd" type="password" placeholder="演示密码：123456"></div>
         <div class="form-actions"><button class="btn btn-primary" onclick="doLogin()">登 录</button></div>
-        <p class="hint">演示账号：13800138000 / 123456（小明同学）&nbsp;·&nbsp;13900139000 / 123456（学霸小李）</p>
-        <p class="hint">没有账号？<a href="javascript:void(0)" onclick="loginMode='register';viewLogin()">立即注册</a></p>` : `
+        <p class="hint">演示账号：13800138000 / 123456（小明同学）&nbsp;·&nbsp;13900139000 / 123456（学霸小李）</p>` : ''}
+        ${isReg ? `
         <div class="field"><label>昵称 <span class="req">*</span></label><input id="rg-name" placeholder="如：小明同学"></div>
         <div class="field"><label>手机号 <span class="req">*</span></label><input id="rg-phone" placeholder="11位手机号，作为登录账号"></div>
         <div class="field"><label>密码 <span class="req">*</span></label><input id="rg-pwd" type="password" placeholder="至少6位"></div>
         <div class="field"><label>确认密码 <span class="req">*</span></label><input id="rg-pwd2" type="password" placeholder="再次输入密码"></div>
-        <div class="form-actions"><button class="btn btn-primary" onclick="doRegister()">注 册</button></div>
-        <p class="hint">已有账号？<a href="javascript:void(0)" onclick="loginMode='login';viewLogin()">返回登录</a></p>`}
+        <div class="form-actions"><button class="btn btn-primary" onclick="doRegister()">注 册</button></div>` : ''}
+        ${isAdmin ? `
+        <div class="field"><label>管理员账号</label><input id="ad-phone" placeholder="演示账号：admin"></div>
+        <div class="field"><label>密码</label><input id="ad-pwd" type="password" placeholder="演示密码：admin123"></div>
+        <div class="form-actions"><button class="btn btn-primary" onclick="doAdminLogin()">登 录</button></div>
+        <p class="hint">管理员演示账号：admin / admin123。注册管理员请前往 <a href="javascript:void(0)" onclick="nav('/admin/login')">管理后台入口</a>（需邀请码）。</p>` : ''}
       </div>
     </div>`;
 }
@@ -663,6 +773,7 @@ function viewDetail() {
         <div class="desc">${esc(p.desc)}</div>
         <div class="actions">
           <button class="btn ${fav?'btn-danger':'btn-primary'}" onclick="favToggle('${p.id}')">${fav?'♥ 已收藏':'♡ 收藏'}</button>
+          ${!isOwner ? `<button class="btn btn-primary" onclick="openChat('${p.id}')">💬 联系卖家</button>` : ''}
           ${isOwner ? `<button class="btn" onclick="nav('/publish/${p.id}')">✏ 编辑</button><button class="btn btn-danger" onclick="delOwn('${p.id}')">🗑 删除</button>` : ''}
         </div>
       </div>
@@ -682,6 +793,80 @@ function delOwn(pid) {
   `);
 }
 function confirmDelOwn(pid) { deletePost(pid); closeModal(); toast('已删除'); nav('/personal'); }
+
+/* =====================================================
+ * 聊天窗口（全局共享，本机演示）
+ * ===================================================== */
+let chat = null; // { postId, otherId }
+
+function openChat(pid, otherId) {
+  const s = currentUser(); if (!s) { nav('/login'); return; }
+  const p = getPost(pid); if (!p) return;
+  if (!otherId) otherId = p.sellerId; // 详情页进入时默认找卖家
+  closeChat(true); // 先清掉旧的浮窗（静默，避免重复渲染）
+  chat = { postId: pid, otherId };    // 清完再赋值，保证不被重置
+  const other = getUser(otherId) || { name: '用户' };
+  const win = document.createElement('div');
+  win.className = 'chat-win';
+  win.id = 'chatWin';
+  win.innerHTML = `
+    <div class="chat-head">
+      <div class="av">${esc(other.name.slice(0,1))}</div>
+      <div style="min-width:0;flex:1">
+        <div class="nm">${esc(other.name)}</div>
+        <div class="tip">咨询：${esc(p.title)}</div>
+      </div>
+      <button class="chat-close" onclick="closeChat()">×</button>
+    </div>
+    <div class="chat-body" id="chatBody"></div>
+    <div class="chat-input">
+      <input id="chatText" placeholder="输入消息，回车发送..." autocomplete="off">
+      <button class="btn btn-primary btn-sm" onclick="sendChat()">发送</button>
+    </div>`;
+  document.body.appendChild(win);
+  markConvRead(s.id, chat.otherId, chat.postId); // 进入会话：对方消息全部标记已读并持久化
+  renderMsgs();
+  const inp = document.getElementById('chatText');
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
+  inp.focus();
+}
+function renderMsgs() {
+  const s = currentUser(); if (!s || !chat) return;
+  const body = document.getElementById('chatBody');
+  if (!body) return;
+  const msgs = getConv(s.id, chat.otherId, chat.postId);
+  const myName = getUser(s.id)?.name || '我';
+  const otherName = getUser(chat.otherId)?.name || '对方';
+  body.innerHTML = msgs.length
+    ? msgs.map(m => {
+        const isMe = m.from === s.id;
+        return `
+        <div class="msg-row ${isMe?'me':''}">
+          <div class="mav">${esc((isMe?myName:otherName).slice(0,1))}</div>
+          <div class="msg-bub">${esc(m.text)}<div class="mt">${relTime(m.at)}</div>${isMe && m.read ? '<div class="read-tag">已读</div>' : ''}</div>
+        </div>`;
+      }).join('')
+    : `<div class="chat-empty">还没有消息，打个招呼吧～<br><span style="font-size:11px">（演示功能：消息仅保存在本机）</span></div>`;
+  body.scrollTop = body.scrollHeight;
+}
+function sendChat() {
+  const s = currentUser(); if (!s || !chat) return;
+  const inp = document.getElementById('chatText');
+  const text = inp.value.trim();
+  if (!text) return;
+  pushMsg(s.id, chat.otherId, chat.postId, text);
+  inp.value = '';
+  renderMsgs();
+  inp.focus();
+}
+function closeChat(silent) {
+  const w = document.getElementById('chatWin');
+  if (w) w.remove();
+  const wasOpen = chat !== null;
+  chat = null;
+  // 关闭后若停留在个人中心，刷新一次让红点/未读数即时消失
+  if (!silent && wasOpen && location.hash.indexOf('/personal') === 1) viewPersonal();
+}
 
 /* =====================================================
  * 视图：发帖/编辑
@@ -773,10 +958,12 @@ function viewPersonal() {
   const s = requireUser(); if (!s) return;
   const u = getUser(s.id);
   let body = '';
+  const unreadTotal = getUnreadTotal(s.id);
   const tabs = `<div class="tabs">
     <button class="tab ${personalTab==='posts'?'active':''}" onclick="personalTab='posts';viewPersonal()">我的发布</button>
     <button class="tab ${personalTab==='favs'?'active':''}" onclick="personalTab='favs';viewPersonal()">我的收藏</button>
     <button class="tab ${personalTab==='hist'?'active':''}" onclick="personalTab='hist';viewPersonal()">浏览历史</button>
+    <button class="tab ${personalTab==='msgs'?'active':''}" onclick="personalTab='msgs';viewPersonal()">我的消息${unreadTotal>0?`<span class="tab-dot">${unreadTotal>99?'99+':unreadTotal}</span>`:''}</button>
   </div>`;
 
   if (personalTab === 'posts') {
@@ -785,9 +972,13 @@ function viewPersonal() {
   } else if (personalTab === 'favs') {
     const favs = getFavs(s.id).map(id => getPost(id)).filter(Boolean);
     body = favs.length ? `<div class="post-list">${favs.map(p=>postRowHTML(p,true)).join('')}</div>` : emptyHTML('还没有收藏任何商品');
-  } else {
+  } else if (personalTab === 'hist') {
     const hist = getHistory(s.id).map(h => ({...h, post: getPost(h.postId)})).filter(x=>x.post);
     body = hist.length ? `<div class="post-list">${hist.map(x=>postRowHTML(x.post,true, x.at)).join('')}</div>` : emptyHTML('暂无浏览记录');
+  } else {
+    // 我的消息：当前用户参与的所有会话
+    const convs = getConvsFor(s.id);
+    body = convs.length ? `<div class="post-list">${convs.map(convRowHTML).join('')}</div>` : emptyHTML('暂无消息记录');
   }
 
   shell(true, `
@@ -825,6 +1016,24 @@ function postRowHTML(p, clickable=false, viewedAt=null) {
 }
 function offlinePost(id) { updatePost(id, { status: 'offline' }); toast('已下架'); viewPersonal(); }
 function resubmit(id) { updatePost(id, { status: 'pending', rejectReason: '' }); toast('已重新提交审核'); viewPersonal(); }
+
+/* 我的消息列表行 */
+function convRowHTML(c) {
+  const p = getPost(c.postId);
+  const thumb = p && p.images && p.images[0] ? `<img src="${p.images[0]}">` : `<div class="ph">💬</div>`;
+  return `
+    <div class="post-row" style="cursor:pointer" onclick="openChat('${c.postId}','${c.otherId}')">
+      <div class="thumb">${thumb}</div>
+      <div class="info">
+        <div class="t">${esc(c.otherName)} <span style="color:var(--text-3);font-size:12px;font-weight:400">· 咨询「${esc(c.postTitle)}」</span>${c.unread>0?` <span class="conv-unread">${c.unread>99?'99+':c.unread}</span>`:''}</div>
+        <div style="color:${c.unread>0?'var(--text-1)':'var(--text-2)'};font-size:14px;margin-top:4px;${c.unread>0?'font-weight:600':''}">${esc(c.lastText)}</div>
+        <div class="m"><span style="color:var(--text-3);font-size:12px">${relTime(c.lastAt)}</span></div>
+      </div>
+      <div class="ops" onclick="event.stopPropagation()">
+        <button class="btn btn-sm btn-primary" onclick="openChat('${c.postId}','${c.otherId}')">打开聊天</button>
+      </div>
+    </div>`;
+}
 
 /* =====================================================
  * 视图：管理员登录
